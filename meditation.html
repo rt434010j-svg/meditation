@@ -1,0 +1,1331 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0d1117">
+  <title>瞑想タイマー</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #06090f;
+      color: #ddd8d0;
+      font-family: -apple-system, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+      overscroll-behavior: none;
+      user-select: none;
+      -webkit-user-select: none;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+    /* 背景グラデーション */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(30,60,100,0.35) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 50% at 50% 100%, rgba(10,25,50,0.4) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body.session-active::before {
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(40,80,140,0.3) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 50% at 50% 100%, rgba(10,30,60,0.4) 0%, transparent 70%);
+    }
+
+    /* 星空背景 */
+    .stars {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    .star {
+      position: absolute;
+      background: white;
+      border-radius: 50%;
+      animation: twinkle var(--dur, 3s) ease-in-out infinite;
+      opacity: var(--op, 0.5);
+    }
+
+    @keyframes twinkle {
+      0%, 100% { opacity: var(--op, 0.5); transform: scale(1); }
+      50% { opacity: calc(var(--op, 0.5) * 0.2); transform: scale(0.7); }
+    }
+
+    /* メインコンテンツ */
+    .container {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: clamp(14px, 3vh, 36px);
+      padding: clamp(12px, 3vh, 36px) 24px;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    /* タイトル */
+    .title {
+      font-size: 11px;
+      letter-spacing: 8px;
+      color: rgba(180,170,155,0.5);
+      text-transform: uppercase;
+      font-weight: 400;
+    }
+
+    /* サウンド名 */
+    .sound-label {
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: rgba(120,150,180,0.4);
+      min-height: 16px;
+      transition: color 1s ease;
+    }
+
+    /* タイマー表示 */
+    .timer-display {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .timer-ring {
+      position: relative;
+      width: clamp(150px, min(26vh, 56vw), 210px);
+      height: clamp(150px, min(26vh, 56vw), 210px);
+    }
+
+    .timer-ring svg {
+      transform: rotate(-90deg);
+      overflow: visible;
+    }
+
+    .ring-bg {
+      fill: none;
+      stroke: rgba(255,255,255,0.05);
+      stroke-width: 1.5;
+    }
+
+    .ring-progress {
+      fill: none;
+      stroke: url(#ringGrad);
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-dasharray: 628;
+      stroke-dashoffset: 628;
+      transition: stroke-dashoffset 1s linear;
+      filter: drop-shadow(0 0 6px rgba(120,180,220,0.4));
+    }
+
+    .ring-progress.active {
+      filter: drop-shadow(0 0 8px rgba(140,200,240,0.5));
+    }
+
+    .ring-progress.paused {
+      transition: stroke-dashoffset 0s;
+      stroke: url(#ringGradPause);
+      filter: drop-shadow(0 0 6px rgba(120,180,140,0.4));
+    }
+
+    .timer-text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .timer-time {
+      font-size: clamp(34px, 10vw, 46px);
+      font-weight: 200;
+      letter-spacing: 3px;
+      color: #ece8e0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .timer-label {
+      font-size: 9px;
+      letter-spacing: 5px;
+      color: rgba(150,170,195,0.5);
+      text-transform: uppercase;
+    }
+
+    /* 瞑想ボタン群 */
+    .buttons-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      width: 100%;
+    }
+
+    .duration-buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    .duration-btn {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: rgba(180,195,215,0.5);
+      padding: 14px 22px;
+      border-radius: 40px;
+      cursor: pointer;
+      font-size: 12px;
+      letter-spacing: 1px;
+      transition: all 0.35s ease;
+      font-family: inherit;
+      touch-action: manipulation;
+      min-width: 76px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .duration-btn:active:not(:disabled) {
+      transform: scale(0.96);
+    }
+
+    .duration-btn.selected {
+      border-color: rgba(120,175,215,0.5);
+      color: rgba(180,220,245,0.9);
+      background: rgba(80,140,190,0.1);
+      box-shadow: 0 0 20px rgba(100,160,210,0.1), inset 0 0 12px rgba(100,160,210,0.05);
+    }
+
+    .duration-btn:disabled {
+      opacity: 0.25;
+      cursor: default;
+    }
+
+    .duration-btn .btn-time {
+      display: block;
+      font-size: 20px;
+      font-weight: 200;
+      color: inherit;
+      margin-bottom: 3px;
+    }
+
+    .duration-btn .btn-label {
+      display: block;
+      font-size: 9px;
+      letter-spacing: 3px;
+      opacity: 0.7;
+    }
+
+    /* ボタン行 */
+    .control-buttons {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    /* スタート/ストップ */
+    .main-btn {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.35s ease;
+      touch-action: manipulation;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+
+    .main-btn:active { transform: scale(0.94); }
+
+    .main-btn svg {
+      fill: rgba(180,205,225,0.7);
+      transition: fill 0.35s;
+    }
+
+    .main-btn.stop-mode {
+      border-color: rgba(200,120,120,0.2);
+      background: rgba(180,80,80,0.06);
+    }
+
+    .main-btn.stop-mode svg { fill: rgba(210,140,140,0.7); }
+
+    /* 一時停止ボタン */
+    .pause-btn {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.35s ease;
+      touch-action: manipulation;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .pause-btn.visible { display: flex; }
+    .pause-btn:active { transform: scale(0.94); }
+
+    .pause-btn svg {
+      fill: rgba(180,205,225,0.6);
+      transition: fill 0.35s;
+    }
+
+    .pause-btn.paused-mode {
+      border-color: rgba(120,185,150,0.3);
+      background: rgba(80,160,110,0.06);
+    }
+
+    .pause-btn.paused-mode svg { fill: rgba(150,210,175,0.8); }
+
+    /* メッセージ */
+    .message {
+      font-size: 11px;
+      letter-spacing: 2.5px;
+      color: rgba(120,140,165,0.4);
+      min-height: 18px;
+      transition: color 1.2s ease;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .message.visible { color: rgba(160,185,210,0.7); }
+
+    /* 呼吸アニメーション */
+    .breath-guide {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .breath-guide.active { display: flex; }
+
+    .breath-orb {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(140,200,240,0.9), rgba(80,140,200,0.3));
+      animation: breathe 8s ease-in-out infinite;
+      box-shadow: 0 0 12px rgba(120,180,230,0.4);
+    }
+
+    .breath-text {
+      font-size: 9px;
+      letter-spacing: 4px;
+      color: rgba(100,140,180,0.4);
+      text-transform: uppercase;
+      animation: breathe-text 8s ease-in-out infinite;
+    }
+
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); opacity: 0.3; box-shadow: 0 0 8px rgba(120,180,230,0.2); }
+      50% { transform: scale(3); opacity: 0.8; box-shadow: 0 0 20px rgba(120,180,230,0.5); }
+    }
+
+    @keyframes breathe-text {
+      0%, 100% { opacity: 0.3; }
+      40%, 60% { opacity: 0.7; }
+    }
+
+    /* サウンドセレクター */
+    .sound-selector {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 8px;
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      padding: 2px 2px;
+    }
+
+    .sound-selector::-webkit-scrollbar { display: none; }
+
+    .sound-opt-btn {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      color: rgba(150,170,195,0.5);
+      padding: 8px 14px;
+      border-radius: 24px;
+      cursor: pointer;
+      font-size: 10px;
+      letter-spacing: 1px;
+      font-family: inherit;
+      transition: all 0.25s ease;
+      white-space: nowrap;
+      flex-shrink: 0;
+      touch-action: manipulation;
+      min-height: 36px;
+    }
+
+    .sound-opt-btn:active { transform: scale(0.95); }
+
+    .sound-opt-btn.active {
+      border-color: rgba(120,175,215,0.45);
+      color: rgba(180,220,245,0.85);
+      background: rgba(80,140,190,0.1);
+      box-shadow: 0 0 14px rgba(100,160,210,0.12);
+    }
+
+    /* ゆらぎエフェクト */
+    .ambient-glow {
+      position: fixed;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(60,110,180,0.06) 0%, transparent 70%);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      animation: glow-pulse 10s ease-in-out infinite;
+      opacity: 0;
+      transition: opacity 4s ease;
+      z-index: 2;
+    }
+
+    .ambient-glow.active { opacity: 1; }
+
+    @keyframes glow-pulse {
+      0%, 100% { transform: translate(-50%, -50%) scale(1); }
+      50% { transform: translate(-50%, -50%) scale(1.2); }
+    }
+
+    /* 短い画面向け */
+    @media (max-height: 700px) {
+      .container { gap: 10px; padding: 10px 20px; }
+      .timer-ring {
+        width: clamp(130px, 22vh, 170px);
+        height: clamp(130px, 22vh, 170px);
+      }
+      .breath-guide { display: none !important; }
+      .buttons-group { gap: 14px; }
+      .message { font-size: 10px; }
+    }
+
+    /* 横向き */
+    @media (orientation: landscape) and (max-height: 500px) {
+      .container { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 12px; }
+      .timer-ring { width: clamp(120px, 30vh, 150px); height: clamp(120px, 30vh, 150px); }
+      .breath-guide { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stars" id="stars"></div>
+  <div class="ambient-glow" id="ambientGlow"></div>
+
+  <div class="container">
+    <p class="title">瞑想</p>
+
+    <div class="timer-display">
+      <div class="timer-ring">
+        <svg width="100%" height="100%" viewBox="0 0 220 220">
+          <defs>
+            <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#5a9fd4"/>
+              <stop offset="100%" stop-color="#a8d4f0"/>
+            </linearGradient>
+            <linearGradient id="ringGradPause" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#5aad7a"/>
+              <stop offset="100%" stop-color="#a0d4b4"/>
+            </linearGradient>
+          </defs>
+          <circle class="ring-bg" cx="110" cy="110" r="100"/>
+          <circle class="ring-progress" id="ringProgress" cx="110" cy="110" r="100"/>
+        </svg>
+        <div class="timer-text">
+          <span class="timer-time" id="timerDisplay">--:--</span>
+          <span class="timer-label" id="timerLabel">SELECT</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="breath-guide" id="breathGuide">
+      <div class="breath-orb"></div>
+      <span class="breath-text">BREATHE</span>
+    </div>
+
+    <div class="buttons-group">
+      <div class="duration-buttons">
+        <button class="duration-btn" data-minutes="4" onclick="selectDuration(4)">
+          <span class="btn-time">4</span>
+          <span class="btn-label">SHORT</span>
+        </button>
+        <button class="duration-btn" data-minutes="8" onclick="selectDuration(8)">
+          <span class="btn-time">8</span>
+          <span class="btn-label">MEDIUM</span>
+        </button>
+        <button class="duration-btn" data-minutes="12" onclick="selectDuration(12)">
+          <span class="btn-time">12</span>
+          <span class="btn-label">LONG</span>
+        </button>
+      </div>
+
+      <div class="control-buttons">
+        <button class="pause-btn" id="pauseBtn" onclick="togglePause()">
+          <svg width="16" height="16" viewBox="0 0 24 24" id="pauseIcon">
+            <rect x="6" y="4" width="4" height="16"/>
+            <rect x="14" y="4" width="4" height="16"/>
+          </svg>
+        </button>
+        <button class="main-btn" id="mainBtn" onclick="toggleSession()">
+          <svg width="20" height="20" viewBox="0 0 24 24" id="btnIcon">
+            <polygon points="6,3 20,12 6,21"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <p class="message" id="message">時間を選んでください</p>
+    <div class="sound-selector" id="soundSelector"></div>
+    <p class="sound-label" id="soundLabel"></p>
+  </div>
+
+  <script>
+    // ===== 星空生成 =====
+    const starsContainer = document.getElementById('stars');
+    for (let i = 0; i < 120; i++) {
+      const star = document.createElement('div');
+      star.className = 'star';
+      const size = Math.random() * 2 + 0.5;
+      star.style.cssText = `
+        width: ${size}px; height: ${size}px;
+        left: ${Math.random() * 100}%;
+        top: ${Math.random() * 100}%;
+        --dur: ${Math.random() * 4 + 2}s;
+        --op: ${Math.random() * 0.6 + 0.1};
+        animation-delay: ${Math.random() * 4}s;
+      `;
+      starsContainer.appendChild(star);
+    }
+
+    // ===== 状態管理 =====
+    let selectedMinutes = null;
+    let totalSeconds = 0;
+    let remainingSeconds = 0;
+    let timerInterval = null;
+    let isRunning = false;
+    let isPaused = false;
+    let audioCtx = null;
+    let currentSoundNodes = [];
+    let masterGain = null;
+    let currentSoundIndex = -1;
+    let preSoundIndex = -1;      // セッション前の選択（-1=ランダム）
+    let soundInstanceId = 0;     // 旧サウンドのスケジューラー停止用
+
+    // ===== UI 要素 =====
+    const timerDisplay = document.getElementById('timerDisplay');
+    const timerLabel = document.getElementById('timerLabel');
+    const mainBtn = document.getElementById('mainBtn');
+    const btnIcon = document.getElementById('btnIcon');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const pauseIcon = document.getElementById('pauseIcon');
+    const message = document.getElementById('message');
+    const soundLabel = document.getElementById('soundLabel');
+    const soundSelector = document.getElementById('soundSelector');
+    const ringProgress = document.getElementById('ringProgress');
+    const breathGuide = document.getElementById('breathGuide');
+    const ambientGlow = document.getElementById('ambientGlow');
+
+    const CIRCUMFERENCE = 2 * Math.PI * 100; // ≈ 628
+
+    // ===== 時間選択 =====
+    function selectDuration(minutes) {
+      if (isRunning || isPaused) return;
+      selectedMinutes = minutes;
+      totalSeconds = minutes * 60;
+      remainingSeconds = totalSeconds;
+
+      document.querySelectorAll('.duration-btn').forEach(btn => {
+        btn.classList.toggle('selected', parseInt(btn.dataset.minutes) === minutes);
+      });
+
+      updateTimerDisplay(remainingSeconds);
+      timerLabel.textContent = 'READY';
+      message.textContent = '準備ができたら始めましょう';
+      message.classList.add('visible');
+      setRingProgress(1);
+    }
+
+    // ===== タイマー表示 =====
+    function updateTimerDisplay(seconds) {
+      const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const s = (seconds % 60).toString().padStart(2, '0');
+      timerDisplay.textContent = `${m}:${s}`;
+    }
+
+    function setRingProgress(ratio) {
+      const offset = CIRCUMFERENCE * (1 - ratio);
+      ringProgress.style.strokeDashoffset = offset;
+    }
+
+    // ===== セッション開始/停止 =====
+    function toggleSession() {
+      if (!isRunning) {
+        if (!selectedMinutes) {
+          message.textContent = 'まず時間を選んでください';
+          message.classList.add('visible');
+          return;
+        }
+        startSession();
+      } else {
+        stopSession();
+      }
+    }
+
+    async function startSession() {
+      isRunning = true;
+      document.body.classList.add('session-active');
+      ambientGlow.classList.add('active');
+
+      // UI更新
+      document.querySelectorAll('.duration-btn').forEach(btn => btn.disabled = true);
+      mainBtn.classList.add('stop-mode');
+      btnIcon.innerHTML = '<rect x="6" y="6" width="12" height="12"/>';
+      pauseBtn.classList.add('visible');
+      timerLabel.textContent = 'MEDITATING';
+      breathGuide.classList.add('active');
+      ringProgress.classList.add('active');
+
+      // Audio 初期化
+      await initAudio();
+      playStartBell();
+
+      setTimeout(() => {
+        playAmbientSound();
+        message.textContent = '静かに呼吸を感じてください';
+        message.classList.add('visible');
+      }, 3000);
+
+      // タイマー開始
+      timerInterval = setInterval(() => {
+        remainingSeconds--;
+        updateTimerDisplay(remainingSeconds);
+        setRingProgress(remainingSeconds / totalSeconds);
+
+        if (remainingSeconds <= 0) {
+          endSession();
+        }
+      }, 1000);
+    }
+
+    function stopSession() {
+      isRunning = false;
+      isPaused = false;
+      clearInterval(timerInterval);
+      fadeOutSound();
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
+      document.body.classList.remove('session-active');
+      ambientGlow.classList.remove('active');
+      document.querySelectorAll('.duration-btn').forEach(btn => btn.disabled = false);
+      mainBtn.classList.remove('stop-mode');
+      btnIcon.innerHTML = '<polygon points="6,3 20,12 6,21"/>';
+      pauseBtn.classList.remove('visible', 'paused-mode');
+      pauseIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+      timerLabel.textContent = 'READY';
+      breathGuide.classList.remove('active');
+      ringProgress.classList.remove('active', 'paused');
+
+      remainingSeconds = totalSeconds;
+      currentSoundIndex = -1;
+      updateTimerDisplay(remainingSeconds);
+      setRingProgress(1);
+      message.textContent = '準備ができたら始めましょう';
+      soundLabel.textContent = '';
+      renderSoundSelector();
+    }
+
+    // ===== 一時停止/再開 =====
+    function togglePause() {
+      if (!isRunning && !isPaused) return;
+
+      if (!isPaused) {
+        // 一時停止
+        isPaused = true;
+        isRunning = false;
+        clearInterval(timerInterval);
+        if (audioCtx) audioCtx.suspend();
+
+        pauseBtn.classList.add('paused-mode');
+        pauseIcon.innerHTML = '<polygon points="6,3 20,12 6,21"/>';
+        timerLabel.textContent = 'PAUSED';
+        breathGuide.classList.remove('active');
+        ringProgress.classList.add('paused');
+        ambientGlow.classList.remove('active');
+        message.textContent = 'ゆっくり休んでください';
+      } else {
+        // 再開
+        isPaused = false;
+        isRunning = true;
+        if (audioCtx) audioCtx.resume();
+
+        pauseBtn.classList.remove('paused-mode');
+        pauseIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+        timerLabel.textContent = 'MEDITATING';
+        breathGuide.classList.add('active');
+        ringProgress.classList.remove('paused');
+        ambientGlow.classList.add('active');
+        message.textContent = '静かに呼吸を感じてください';
+
+        timerInterval = setInterval(() => {
+          remainingSeconds--;
+          updateTimerDisplay(remainingSeconds);
+          setRingProgress(remainingSeconds / totalSeconds);
+          if (remainingSeconds <= 0) endSession();
+        }, 1000);
+      }
+    }
+
+    function endSession() {
+      isRunning = false;
+      clearInterval(timerInterval);
+
+      fadeOutSound();
+      setTimeout(() => playEndBell(), 500);
+
+      document.body.classList.remove('session-active');
+      ambientGlow.classList.remove('active');
+      document.querySelectorAll('.duration-btn').forEach(btn => btn.disabled = false);
+      mainBtn.classList.remove('stop-mode');
+      btnIcon.innerHTML = '<polygon points="6,3 20,12 6,21"/>';
+      pauseBtn.classList.remove('visible', 'paused-mode');
+      pauseIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+      currentSoundIndex = -1;
+      timerLabel.textContent = 'COMPLETE';
+      breathGuide.classList.remove('active');
+      ringProgress.classList.remove('active', 'paused');
+
+      timerDisplay.textContent = '00:00';
+      setRingProgress(0);
+      message.textContent = 'お疲れ様でした。ゆっくりと目を開けてください。';
+      soundLabel.textContent = '';
+
+      setTimeout(() => {
+        timerLabel.textContent = 'READY';
+        remainingSeconds = totalSeconds;
+        updateTimerDisplay(remainingSeconds);
+        setRingProgress(1);
+        message.textContent = '準備ができたら始めましょう';
+      }, 8000);
+    }
+
+    // ===== Audio Engine =====
+    async function initAudio() {
+      if (audioCtx) {
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        return;
+      }
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
+      masterGain.connect(audioCtx.destination);
+    }
+
+    // ノイズバッファ生成
+    function createNoiseBuffer(type = 'white') {
+      const bufferSize = audioCtx.sampleRate * 4;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      let lastOut = 0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        if (type === 'brown') {
+          lastOut = (lastOut + 0.02 * white) / 1.02;
+          data[i] = lastOut * 3.5;
+        } else if (type === 'pink') {
+          data[i] = white * 0.3 + lastOut * 0.7;
+          lastOut = data[i];
+        } else {
+          data[i] = white;
+        }
+      }
+      return buffer;
+    }
+
+    // ===== 焚き火サウンド =====
+    function createFireSound() {
+      const nodes = [];
+
+      // ベースの火の音（ブラウンノイズ）
+      const noiseSource = audioCtx.createBufferSource();
+      noiseSource.buffer = createNoiseBuffer('brown');
+      noiseSource.loop = true;
+
+      const fireFilter = audioCtx.createBiquadFilter();
+      fireFilter.type = 'bandpass';
+      fireFilter.frequency.value = 600;
+      fireFilter.Q.value = 0.4;
+
+      const fireGain = audioCtx.createGain();
+      fireGain.gain.value = 0.35;
+
+      noiseSource.connect(fireFilter);
+      fireFilter.connect(fireGain);
+      fireGain.connect(masterGain);
+      noiseSource.start();
+      nodes.push(noiseSource, fireFilter, fireGain);
+
+      // パチパチ音
+      const myId = soundInstanceId;
+      function scheduleCrackle() {
+        if (soundInstanceId !== myId) return;
+        if (!isRunning && !isPaused) return;
+        const t = audioCtx.currentTime + Math.random() * 0.8;
+        const osc = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.value = 200 + Math.random() * 600;
+        env.gain.setValueAtTime(0, t);
+        env.gain.linearRampToValueAtTime(0.06 * Math.random(), t + 0.005);
+        env.gain.exponentialRampToValueAtTime(0.001, t + 0.06 + Math.random() * 0.1);
+        const crackleFilter = audioCtx.createBiquadFilter();
+        crackleFilter.type = 'highpass';
+        crackleFilter.frequency.value = 800;
+        osc.connect(crackleFilter);
+        crackleFilter.connect(env);
+        env.connect(masterGain);
+        osc.start(t);
+        osc.stop(t + 0.15);
+        setTimeout(scheduleCrackle, Math.random() * 800 + 200);
+      }
+      scheduleCrackle();
+
+      return nodes;
+    }
+
+    // ===== 川のせせらぎサウンド =====
+    function createRiverSound() {
+      const nodes = [];
+
+      // ホワイトノイズベース
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = createNoiseBuffer('pink');
+      noise.loop = true;
+
+      // 複数のフィルターで水感を出す
+      const highpass = audioCtx.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.value = 500;
+
+      const lowpass = audioCtx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 3000;
+
+      const riverGain = audioCtx.createGain();
+      riverGain.gain.value = 0.22;
+
+      noise.connect(highpass);
+      highpass.connect(lowpass);
+      lowpass.connect(riverGain);
+      riverGain.connect(masterGain);
+      noise.start();
+      nodes.push(noise, highpass, lowpass, riverGain);
+
+      // ゆっくりとしたうねり（LFO）
+      const lfo = audioCtx.createOscillator();
+      const lfoGain = audioCtx.createGain();
+      lfo.frequency.value = 0.15;
+      lfoGain.gain.value = 0.08;
+      lfo.connect(lfoGain);
+      lfoGain.connect(riverGain.gain);
+      lfo.start();
+      nodes.push(lfo, lfoGain);
+
+      return nodes;
+    }
+
+    // ===== アンビエント音楽 =====
+    function createAmbientMusic() {
+      const nodes = [];
+
+      // 倍音が美しい和音（ドローン）
+      const freqs = [
+        [110, 0.06],  // A2
+        [165, 0.05],  // E3
+        [220, 0.04],  // A3
+        [277, 0.03],  // C#4
+        [330, 0.025], // E4
+        [440, 0.015], // A4
+      ];
+
+      freqs.forEach(([freq, amp]) => {
+        const osc = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq + (Math.random() - 0.5) * 0.5; // 微妙なデチューン
+        env.gain.value = amp;
+
+        // ゆっくりとした揺らぎ
+        const vibratoLFO = audioCtx.createOscillator();
+        const vibratoGain = audioCtx.createGain();
+        vibratoLFO.frequency.value = 0.2 + Math.random() * 0.2;
+        vibratoGain.gain.value = 0.3;
+        vibratoLFO.connect(vibratoGain);
+        vibratoGain.connect(osc.frequency);
+        vibratoLFO.start();
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 1200;
+
+        osc.connect(filter);
+        filter.connect(env);
+        env.connect(masterGain);
+        osc.start();
+        nodes.push(osc, env, vibratoLFO, vibratoGain, filter);
+      });
+
+      return nodes;
+    }
+
+    // ===== 雨音 =====
+    function createRainSound() {
+      const nodes = [];
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = createNoiseBuffer('pink');
+      noise.loop = true;
+
+      const hp = audioCtx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 1200;
+      const lp = audioCtx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 8000;
+      const g = audioCtx.createGain();
+      g.gain.value = 0.28;
+
+      noise.connect(hp); hp.connect(lp); lp.connect(g); g.connect(masterGain);
+      noise.start();
+      nodes.push(noise, hp, lp, g);
+
+      // 雨粒のポツポツ
+      const myDropId = soundInstanceId;
+      function scheduleDrop() {
+        if (soundInstanceId !== myDropId) return;
+        if (!isRunning && !isPaused) return;
+        if (audioCtx.state === 'suspended') { setTimeout(scheduleDrop, 300); return; }
+        const t = audioCtx.currentTime + Math.random() * 0.3;
+        const osc = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 800 + Math.random() * 1200;
+        env.gain.setValueAtTime(0, t);
+        env.gain.linearRampToValueAtTime(0.03 * Math.random(), t + 0.002);
+        env.gain.exponentialRampToValueAtTime(0.001, t + 0.04 + Math.random() * 0.08);
+        osc.connect(env); env.connect(masterGain);
+        osc.start(t); osc.stop(t + 0.12);
+        setTimeout(scheduleDrop, Math.random() * 150 + 50);
+      }
+      scheduleDrop();
+      return nodes;
+    }
+
+    // ===== 海の波 =====
+    function createOceanSound() {
+      const nodes = [];
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = createNoiseBuffer('brown');
+      noise.loop = true;
+
+      const lp = audioCtx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 800;
+      const waveGain = audioCtx.createGain();
+      waveGain.gain.value = 0.4;
+
+      noise.connect(lp); lp.connect(waveGain); waveGain.connect(masterGain);
+      noise.start();
+      nodes.push(noise, lp, waveGain);
+
+      // 波のゆっくりしたうねり
+      const lfo = audioCtx.createOscillator();
+      const lfoGain = audioCtx.createGain();
+      lfo.frequency.value = 0.1;
+      lfoGain.gain.value = 0.3;
+      lfo.connect(lfoGain); lfoGain.connect(waveGain.gain);
+      lfo.start();
+      nodes.push(lfo, lfoGain);
+
+      // 高音の波打ち
+      const noise2 = audioCtx.createBufferSource();
+      noise2.buffer = createNoiseBuffer('pink');
+      noise2.loop = true;
+      const hp = audioCtx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 2000;
+      const foamGain = audioCtx.createGain();
+      foamGain.gain.value = 0.08;
+      const lfo2 = audioCtx.createOscillator();
+      const lfoGain2 = audioCtx.createGain();
+      lfo2.frequency.value = 0.1;
+      lfoGain2.gain.value = 0.07;
+      lfo2.connect(lfoGain2); lfoGain2.connect(foamGain.gain);
+      lfo2.start();
+      noise2.connect(hp); hp.connect(foamGain); foamGain.connect(masterGain);
+      noise2.start();
+      nodes.push(noise2, hp, foamGain, lfo2, lfoGain2);
+      return nodes;
+    }
+
+    // ===== 432Hz ヒーリング =====
+    function create432Hz() {
+      const nodes = [];
+      const base = 432;
+      const freqs = [base/2, base, base*1.5, base*2, base*2.5];
+      const amps  = [0.08, 0.1, 0.06, 0.04, 0.02];
+
+      freqs.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        env.gain.value = amps[i];
+
+        const lfo = audioCtx.createOscillator();
+        const lfoG = audioCtx.createGain();
+        lfo.frequency.value = 0.05 + i * 0.03;
+        lfoG.gain.value = amps[i] * 0.3;
+        lfo.connect(lfoG); lfoG.connect(env.gain);
+        lfo.start();
+
+        osc.connect(env); env.connect(masterGain);
+        osc.start();
+        nodes.push(osc, env, lfo, lfoG);
+      });
+      return nodes;
+    }
+
+    // ===== 528Hz ミラクルトーン =====
+    function create528Hz() {
+      const nodes = [];
+      const base = 528;
+      const freqs = [base/4, base/2, base, base*1.5];
+      const amps  = [0.05, 0.08, 0.1, 0.04];
+
+      freqs.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        osc.type = i < 2 ? 'sine' : 'sine';
+        osc.frequency.value = freq + (Math.random() - 0.5) * 0.3;
+        env.gain.value = amps[i];
+
+        const lfo = audioCtx.createOscillator();
+        const lfoG = audioCtx.createGain();
+        lfo.frequency.value = 0.07 + i * 0.04;
+        lfoG.gain.value = amps[i] * 0.25;
+        lfo.connect(lfoG); lfoG.connect(env.gain);
+        lfo.start();
+
+        osc.connect(env); env.connect(masterGain);
+        osc.start();
+        nodes.push(osc, env, lfo, lfoG);
+      });
+      return nodes;
+    }
+
+    // ===== シンギングボウル =====
+    function createSingingBowl() {
+      const nodes = [];
+
+      const myBowlId = soundInstanceId;
+      function strike(t) {
+        if (soundInstanceId !== myBowlId) return;
+        if (!isRunning && !isPaused) return;
+        if (audioCtx.state === 'suspended') { setTimeout(() => strike(audioCtx.currentTime), 300); return; }
+        const freqs = [196, 392, 588, 784, 980];
+        const amps  = [0.25, 0.12, 0.07, 0.04, 0.02];
+        freqs.forEach((freq, i) => {
+          const osc = audioCtx.createOscillator();
+          const env = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          env.gain.setValueAtTime(0, t);
+          env.gain.linearRampToValueAtTime(amps[i], t + 0.01);
+          env.gain.exponentialRampToValueAtTime(0.001, t + 8 + i * 1.5);
+          osc.connect(env); env.connect(masterGain);
+          osc.start(t); osc.stop(t + 10 + i * 2);
+        });
+        const next = 10 + Math.random() * 5;
+        setTimeout(() => { if (isRunning || isPaused) strike(audioCtx.currentTime); }, next * 1000);
+      }
+      strike(audioCtx.currentTime + 0.1);
+      return nodes;
+    }
+
+    // ===== バイノーラル θ波 (6Hz) =====
+    function createBinauralTheta() {
+      const nodes = [];
+      const base = 200;
+      const beat = 6; // theta
+
+      // モノラルビート（2つの周波数の差で6Hzの揺らぎ）
+      [base, base + beat].forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        env.gain.value = 0.07;
+        osc.connect(env); env.connect(masterGain);
+        osc.start();
+        nodes.push(osc, env);
+      });
+
+      // 低音ドローン
+      const drone = audioCtx.createOscillator();
+      const droneG = audioCtx.createGain();
+      drone.frequency.value = 80;
+      droneG.gain.value = 0.06;
+      const lfo = audioCtx.createOscillator();
+      const lfoG = audioCtx.createGain();
+      lfo.frequency.value = 0.1;
+      lfoG.gain.value = 0.02;
+      lfo.connect(lfoG); lfoG.connect(droneG.gain); lfo.start();
+      drone.connect(droneG); droneG.connect(masterGain); drone.start();
+      nodes.push(drone, droneG, lfo, lfoG);
+      return nodes;
+    }
+
+    // ===== 森の風 =====
+    function createForestWind() {
+      const nodes = [];
+
+      // 風の音
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = createNoiseBuffer('pink');
+      noise.loop = true;
+      const bp = audioCtx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 400;
+      bp.Q.value = 0.3;
+      const windG = audioCtx.createGain();
+      windG.gain.value = 0.18;
+      const windLFO = audioCtx.createOscillator();
+      const windLFOG = audioCtx.createGain();
+      windLFO.frequency.value = 0.08;
+      windLFOG.gain.value = 0.12;
+      windLFO.connect(windLFOG); windLFOG.connect(windG.gain); windLFO.start();
+      noise.connect(bp); bp.connect(windG); windG.connect(masterGain); noise.start();
+      nodes.push(noise, bp, windG, windLFO, windLFOG);
+
+      // 鳥のさえずり風トーン
+      const myBirdId = soundInstanceId;
+      function scheduleBird() {
+        if (soundInstanceId !== myBirdId) return;
+        if (!isRunning && !isPaused) return;
+        if (audioCtx.state === 'suspended') { setTimeout(scheduleBird, 300); return; }
+        const t = audioCtx.currentTime + Math.random() * 3;
+        const freq = 1200 + Math.random() * 800;
+        const osc = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.linearRampToValueAtTime(freq * 1.2, t + 0.08);
+        osc.frequency.linearRampToValueAtTime(freq, t + 0.16);
+        env.gain.setValueAtTime(0, t);
+        env.gain.linearRampToValueAtTime(0.04, t + 0.02);
+        env.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+        osc.connect(env); env.connect(masterGain);
+        osc.start(t); osc.stop(t + 0.3);
+        setTimeout(scheduleBird, 3000 + Math.random() * 8000);
+      }
+      scheduleBird();
+      return nodes;
+    }
+
+    // ===== サウンド一覧 =====
+    const soundOptions = [
+      { name: '焚き火', fn: createFireSound },
+      { name: '川のせせらぎ', fn: createRiverSound },
+      { name: '雨音', fn: createRainSound },
+      { name: '海の波', fn: createOceanSound },
+      { name: 'アンビエント', fn: createAmbientMusic },
+      { name: '432Hz', fn: create432Hz },
+      { name: '528Hz', fn: create528Hz },
+      { name: 'シンギングボウル', fn: createSingingBowl },
+      { name: 'バイノーラル θ波', fn: createBinauralTheta },
+      { name: '森の風', fn: createForestWind },
+    ];
+
+    // ===== サウンドセレクター描画 =====
+    function renderSoundSelector() {
+      soundSelector.innerHTML = '';
+      const activeIdx = (isRunning || isPaused) ? currentSoundIndex : preSoundIndex;
+
+      // ランダムボタン
+      const randBtn = document.createElement('button');
+      randBtn.className = 'sound-opt-btn' + (activeIdx === -1 ? ' active' : '');
+      randBtn.textContent = 'ランダム';
+      randBtn.onclick = () => selectSound(-1);
+      soundSelector.appendChild(randBtn);
+
+      soundOptions.forEach((opt, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'sound-opt-btn' + (i === activeIdx ? ' active' : '');
+        btn.textContent = opt.name;
+        btn.onclick = () => selectSound(i);
+        soundSelector.appendChild(btn);
+      });
+    }
+
+    // ===== サウンド選択（セッション前／セッション中で動作が変わる） =====
+    function selectSound(index) {
+      if (isRunning || isPaused) {
+        // セッション中：クロスフェードで切り替え
+        const target = index === -1
+          ? Math.floor(Math.random() * soundOptions.length)
+          : index;
+        switchSound(target, index === -1 ? -1 : index);
+      } else {
+        // セッション前：プリセット更新のみ
+        preSoundIndex = index;
+        renderSoundSelector();
+      }
+    }
+
+    // ===== クロスフェード切り替え =====
+    function switchSound(soundIdx, displayIdx) {
+      if (soundIdx === currentSoundIndex) return;
+      if (!audioCtx) return;
+
+      const fade = 0.5;
+      soundInstanceId++;           // 旧スケジューラーを即停止
+
+      masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+      masterGain.gain.setValueAtTime(masterGain.gain.value, audioCtx.currentTime);
+      masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + fade);
+
+      setTimeout(() => {
+        currentSoundNodes.forEach(n => {
+          try { if (n.stop) n.stop(); } catch(e) {}
+          try { n.disconnect(); } catch(e) {}
+        });
+        currentSoundNodes = [];
+
+        currentSoundIndex = soundIdx;
+        soundLabel.textContent = soundOptions[soundIdx].name;
+        currentSoundNodes = soundOptions[soundIdx].fn();
+        renderSoundSelector();
+
+        masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+        masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
+        masterGain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + fade);
+      }, (fade + 0.1) * 1000);
+    }
+
+    function playAmbientSound() {
+      soundInstanceId++;
+      const index = preSoundIndex === -1
+        ? Math.floor(Math.random() * soundOptions.length)
+        : preSoundIndex;
+      currentSoundIndex = index;
+      soundLabel.textContent = soundOptions[index].name;
+      currentSoundNodes = soundOptions[index].fn();
+      masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+      masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
+      masterGain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + 3);
+      renderSoundSelector();
+    }
+
+    function fadeOutSound(duration = 3) {
+      if (!masterGain || !audioCtx) return;
+      masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+      masterGain.gain.setValueAtTime(masterGain.gain.value, audioCtx.currentTime);
+      masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + duration);
+      setTimeout(() => {
+        currentSoundNodes.forEach(node => {
+          try { node.disconnect(); } catch(e) {}
+        });
+        currentSoundNodes = [];
+      }, (duration + 1) * 1000);
+    }
+
+    // ===== 開始ベル（ティベタンボウル風） =====
+    function playStartBell() {
+      if (!audioCtx) return;
+      const bellFreqs = [220, 440, 660, 880];
+      const now = audioCtx.currentTime;
+
+      bellFreqs.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const amp = [0.3, 0.15, 0.08, 0.04][i];
+        env.gain.setValueAtTime(0, now);
+        env.gain.linearRampToValueAtTime(amp, now + 0.02);
+        env.gain.exponentialRampToValueAtTime(0.001, now + 5 + i);
+        osc.connect(env);
+        env.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 6 + i);
+      });
+
+      message.textContent = '深呼吸をして、目を閉じてください';
+    }
+
+    // ===== 終了ベル（3回） =====
+    function playEndBell() {
+      if (!audioCtx) return;
+
+      function bell(t) {
+        const freqs = [260, 520, 780, 1040];
+        freqs.forEach((freq, i) => {
+          const osc = audioCtx.createOscillator();
+          const env = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          const amp = [0.25, 0.12, 0.06, 0.03][i];
+          env.gain.setValueAtTime(0, t);
+          env.gain.linearRampToValueAtTime(amp, t + 0.015);
+          env.gain.exponentialRampToValueAtTime(0.001, t + 4 + i * 0.5);
+          osc.connect(env);
+          env.connect(audioCtx.destination);
+          osc.start(t);
+          osc.stop(t + 5 + i);
+        });
+      }
+
+      const now = audioCtx.currentTime;
+      bell(now);
+      bell(now + 2.5);
+      bell(now + 5);
+    }
+
+    // ===== 初期表示 =====
+    timerDisplay.textContent = '--:--';
+    timerLabel.textContent = 'SELECT';
+    renderSoundSelector();
+  </script>
+</body>
+</html>
